@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 pub mod entry;
 
 use std::collections::{HashMap, HashSet};

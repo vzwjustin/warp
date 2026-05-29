@@ -12,8 +12,8 @@ use crate::Appearance;
 
 /// The Tabs trait provides common functionality for an enum to be used as a tabs menu UI component.
 /// It requires the trait-user to implement action_on_click() and label().
+#[allow(dead_code)]
 pub trait Tabs: PartialEq + Display + Copy {
-    #[allow(dead_code)]
     fn button_variant(&self, selected_view_option: &Self) -> ButtonVariant {
         if self == selected_view_option {
             ButtonVariant::Basic
@@ -26,7 +26,6 @@ pub trait Tabs: PartialEq + Display + Copy {
         self.to_string()
     }
 
-    #[allow(dead_code)]
     fn render_tab(
         &self,
         team: &Team,
@@ -51,8 +50,6 @@ pub trait Tabs: PartialEq + Display + Copy {
     }
 
     // The trait-inheriter must define their own action and their own labels.
-    #[allow(dead_code)]
     fn action_on_click(&self, selection: Self) -> TeamsPageAction;
-    #[allow(dead_code)]
     fn label(&self, team: &Team, cloud_model: &CloudModel) -> String;
 }

@@ -123,7 +123,6 @@ pub struct EnvVarCollection {
 }
 
 impl EnvVarCollection {
-    #[allow(dead_code)]
     pub fn new(title: Option<String>, description: Option<String>, vars: Vec<EnvVar>) -> Self {
         Self {
             title,

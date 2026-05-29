@@ -118,7 +118,6 @@ pub enum UpdateBufferOption {
     None,
 
     /// The edits are not recorded on the undo / redo stack.
-    #[allow(dead_code)]
     SkipUndoRedoRecord,
 
     /// The edits are recorded in a dedicated, ephemeral buffer

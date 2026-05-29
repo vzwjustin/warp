@@ -81,7 +81,6 @@ pub enum DefaultProfileState {
     },
     /// Currently, the behavior of the CLI default is that it
     /// cannot be updated and will never be synced.
-    #[allow(dead_code)]
     Cli {
         id: ClientProfileId,
         profile: AIExecutionProfile,

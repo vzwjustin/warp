@@ -201,7 +201,6 @@ pub enum SharingDialogAction {
     ShowQrCode,
     BackToAccessDialog,
     DownloadQrCode,
-    #[allow(dead_code)]
     SetLinkPermissions(Option<SharingAccessLevel>),
     ToggleLinkSharingMenu,
     ToggleTeamSharingMenu,

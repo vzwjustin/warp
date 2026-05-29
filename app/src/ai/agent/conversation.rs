@@ -175,7 +175,6 @@ pub(crate) struct CommandBlockInfo {
 
 #[derive(Debug, Clone)]
 struct AddedExchange {
-    #[allow(dead_code)]
     task_id: TaskId,
     exchange_id: AIAgentExchangeId,
 }
@@ -3290,12 +3289,10 @@ impl AIConversation {
             .find_map(|exchange| exchange.working_directory.clone())
     }
 
-    #[allow(dead_code)]
     pub fn total_request_cost(&self) -> RequestCost {
         self.total_request_cost
     }
 
-    #[allow(dead_code)]
     pub fn total_token_usage(&self) -> Vec<TokenUsage> {
         self.total_token_usage_by_model.values().cloned().collect()
     }

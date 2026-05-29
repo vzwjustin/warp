@@ -28,7 +28,6 @@ impl PricingInfoModel {
     }
 
     /// Returns the pricing for a specific plan.
-    #[allow(dead_code)]
     pub fn plan_pricing(&self, plan: &StripeSubscriptionPlan) -> Option<&PlanPricing> {
         self.pricing_info
             .as_ref()?

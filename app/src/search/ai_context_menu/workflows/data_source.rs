@@ -17,7 +17,6 @@ const ZERO_STATE_BASE_SCORE: i64 = 1000;
 pub struct WorkflowDataSource;
 
 impl WorkflowDataSource {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self
     }
