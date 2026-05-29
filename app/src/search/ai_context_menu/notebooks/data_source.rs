@@ -20,7 +20,6 @@ pub struct NotebookDataSource {
 }
 
 impl NotebookDataSource {
-    #[allow(dead_code)]
     pub fn new(is_plan: bool) -> Self {
         Self { is_plan }
     }

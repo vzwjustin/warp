@@ -11,10 +11,7 @@ use warpui::text_layout::ClipConfig;
 use warpui::ui_components::components::UiComponent;
 #[cfg(not(target_arch = "wasm32"))]
 use warpui::ui_components::components::UiComponentStyles;
-use warpui::{
-    AppContext, Element, ModelHandle, SingletonEntity, TypedActionView, ViewContext,
-    WeakModelHandle,
-};
+use warpui::{AppContext, Element, ModelHandle, SingletonEntity, ViewContext, WeakModelHandle};
 
 use super::ambient_agent::is_cloud_agent_pre_first_exchange;
 use super::shared_session::adapter::Kind as SharedSessionKind;

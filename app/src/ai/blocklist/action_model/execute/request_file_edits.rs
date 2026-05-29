@@ -14,7 +14,6 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use itertools::Itertools;
 pub(crate) use telemetry::MalformedFinalLineProxyEvent;
-#[allow(unused_imports)]
 pub use telemetry::{EditAcceptAndContinueClickedEvent, EditAcceptClickedEvent};
 pub use telemetry::{
     EditReceivedEvent, EditResolvedEvent, EditStats, RequestFileEditsFormatKind,

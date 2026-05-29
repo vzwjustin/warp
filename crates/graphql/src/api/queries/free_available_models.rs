@@ -36,6 +36,5 @@ pub enum FreeAvailableModelsResult {
 #[derive(cynic::QueryFragment, Debug)]
 pub struct FreeAvailableModelsOutput {
     pub feature_model_choice: FeatureModelChoice,
-    #[allow(dead_code)]
     pub response_context: ResponseContext,
 }

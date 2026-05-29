@@ -256,6 +256,207 @@ fn test_soft_wrap_point() {
     );
 }
 
+// ── CLD-558 characterization tests ───────────────────────────────────────────
+//
+// These tests pin the CURRENT behaviour of `offset_to_softwrap_point` and
+// `softwrap_point_to_offset`.  They document the coordinate-system invariant
+// that the render model's SumTree uses 0-indexed CharOffsets, where
+// `content_length` is the cumulative size of blocks starting from 0.  They
+// must NOT be changed to assert "desired" future behaviour – their value comes
+// precisely from asserting what the code actually does today, so regressions
+// are caught immediately.
+//
+// Key invariant:
+//   render offset  =  buffer (1-indexed) offset  −  1
+//
+// For paragraph blocks:
+//   • `offset_to_softwrap_point(R)` maps render offset R → (row, pixel_column).
+//   • `softwrap_point_to_offset((row, col))` maps back to a render offset.
+//   • Round-tripping via a SoftWrapPoint is lossless for caret positions on
+//     the same character (though rounding to the nearest glyph can occur for
+//     sub-character pixel values).
+//   • `max_offset()` = total SumTree content_length − 1, and
+//     `softwrap_point_to_offset` for an out-of-bounds row returns `max_offset()`.
+//
+// For the `navigate_line*` callers (in selection.rs) the ±1 adjustments are
+// because those functions receive *buffer* 1-indexed offsets, convert to
+// render coordinates (−1) before calling `offset_to_softwrap_point`, then
+// convert back (+1) after calling `softwrap_point_to_offset`.
+//
+// Exception – end-of-line forwards path (`navigate_line_boundary` Forwards):
+//   `softwrap_point_to_offset(start_of_next_row)` returns the render offset
+//   of the first character of the next soft-wrap row. By the layout
+//   construction invariant, this value equals the *buffer* offset of the
+//   trailing newline of the current hard-wrapped line, so no additional ±1
+//   is required in that specific code path.
+
+/// Builds a model and tree identical to `test_soft_wrap_point`.
+/// Returns the model and also a `char_x` helper as a closure.
+fn make_soft_wrap_model() -> (RenderState, impl Fn(usize) -> Pixels) {
+    let model =
+        RenderState::new_for_test(TEST_STYLES.clone(), 40.0.into_pixels(), 60.0.into_pixels());
+    let char_x = |chars: usize| -> Pixels {
+        TEXT_SPACING.left_offset() + (chars as f32 * TEST_STYLES.base_text.font_size).into_pixels()
+    };
+    (model, char_x)
+}
+
+/// Round-trip characterization: offset → softwrap_point → offset
+///
+/// Verifies that for every tested render offset the round-trip
+/// `softwrap_point_to_offset(offset_to_softwrap_point(r)) == r`
+/// holds for the current implementation.
+#[test]
+fn test_cld558_round_trip_offset_to_swp_to_offset() {
+    let (mut model, _char_x) = make_soft_wrap_model();
+    let mut content = SumTree::new();
+    // "ABCDEFG\n"  → render offsets 0..8  (content_length = 8)
+    content.push(laid_out_paragraph("ABCDEFG\n", &TEST_STYLES, 40.));
+    // "ABCD\n"     → render offsets 8..13 (content_length = 5)
+    content.push(laid_out_paragraph("ABCD\n", &TEST_STYLES, 40.));
+    // "ABCDEFG\n"  → render offsets 13..21
+    content.push(laid_out_paragraph("ABCDEFG\n", &TEST_STYLES, 40.));
+    // "\n"         → render offsets 21..22
+    content.push(laid_out_paragraph("\n", &TEST_STYLES, 40.));
+    // "ABC\n"      → render offsets 22..26
+    content.push(laid_out_paragraph("ABC\n", &TEST_STYLES, 40.));
+    model.set_content(content);
+
+    // Probe a representative set of render offsets and verify round-trip.
+    // Note: `offset_to_softwrap_point` snaps to the nearest glyph boundary on
+    // the pixel axis, so the inverse `softwrap_point_to_offset` may not recover
+    // the exact input for every pixel-level column – but for offsets that
+    // correspond to actual caret positions (integer render offsets) the
+    // round-trip is exact.
+    for render_offset in [0usize, 1, 3, 7, 8, 9, 12, 13, 14, 20, 21, 22, 25, 26] {
+        let r = CharOffset::from(render_offset);
+        let swp = model.offset_to_softwrap_point(r);
+        let recovered = model.softwrap_point_to_offset(swp);
+        assert_eq!(
+            recovered, r,
+            "round-trip failed for render offset {render_offset}: \
+             offset_to_softwrap_point = {swp:?}, but softwrap_point_to_offset = {recovered:?}"
+        );
+    }
+}
+
+/// Round-trip characterization: softwrap_point → offset → softwrap_point
+///
+/// Verifies that for well-formed SoftWrapPoints the inverse round-trip
+/// `offset_to_softwrap_point(softwrap_point_to_offset(p))` recovers a
+/// point on the same row (column may differ due to nearest-glyph snapping).
+#[test]
+fn test_cld558_round_trip_swp_to_offset_to_swp() {
+    let (mut model, char_x) = make_soft_wrap_model();
+    let mut content = SumTree::new();
+    content.push(laid_out_paragraph("ABCDEFG\n", &TEST_STYLES, 40.));
+    content.push(laid_out_paragraph("ABCD\n", &TEST_STYLES, 40.));
+    content.push(laid_out_paragraph("ABCDEFG\n", &TEST_STYLES, 40.));
+    content.push(laid_out_paragraph("\n", &TEST_STYLES, 40.));
+    content.push(laid_out_paragraph("ABC\n", &TEST_STYLES, 40.));
+    model.set_content(content);
+
+    // For each (row, col) pair: the recovered offset must lie within the block
+    // for that row, and the re-computed softwrap point must be on the same row.
+    let cases: &[(u32, usize)] = &[
+        (0, 0),
+        (0, 3), // first soft-wrap line of para 1
+        (1, 0),
+        (1, 3), // second soft-wrap line of para 1
+        (2, 0),
+        (2, 2), // para 2 (single line)
+        (3, 0),
+        (3, 2), // first soft-wrap line of para 3
+        (4, 0),
+        (4, 2), // second soft-wrap line of para 3
+        (5, 0), // empty line (para 4 = "\n")
+        (6, 0),
+        (6, 2), // para 5 ("ABC\n")
+    ];
+    for &(row, chars) in cases {
+        let col = char_x(chars);
+        let swp = SoftWrapPoint::new(row, col);
+        let offset = model.softwrap_point_to_offset(swp);
+        let recovered_swp = model.offset_to_softwrap_point(offset);
+        assert_eq!(
+            recovered_swp.row(),
+            row,
+            "round-trip row mismatch for ({row}, {chars}): \
+             softwrap_point_to_offset = {offset:?}, recovered row = {}",
+            recovered_swp.row()
+        );
+    }
+}
+
+/// Characterization: max_offset equals total SumTree content_length minus one.
+///
+/// This value is the render-model analogue of the buffer's `max_charoffset()`.
+/// The −1 exists because the SumTree always ends with a TrailingNewLine
+/// placeholder that has content_length = 1; `max_offset` intentionally
+/// excludes it so that out-of-bounds `softwrap_point_to_offset` calls clamp
+/// to a meaningful position.
+#[test]
+fn test_cld558_max_offset_is_content_length_minus_one() {
+    let (mut model, _char_x) = make_soft_wrap_model();
+    let mut content = SumTree::new();
+    content.push(laid_out_paragraph("ABCDEFG\n", &TEST_STYLES, 40.)); // len 8
+    content.push(laid_out_paragraph("ABCD\n", &TEST_STYLES, 40.)); // len 5
+    content.push(laid_out_paragraph("ABC\n", &TEST_STYLES, 40.)); // len 4
+    model.set_content(content);
+    // Total pushed content = 8+5+4 = 17.  set_content appends a TrailingNewLine
+    // (len 1), making the SumTree extent 18.  max_offset = 18 − 1 = 17.
+    assert_eq!(model.max_offset(), CharOffset::from(17));
+    // Out-of-bounds row clamps to max_offset().
+    let oob_row = SoftWrapPoint::new(999, Pixels::zero());
+    assert_eq!(
+        model.softwrap_point_to_offset(oob_row),
+        CharOffset::from(17)
+    );
+}
+
+/// Characterization: the ±1 shift between buffer and render coordinates.
+///
+/// Demonstrates the invariant directly: for a simple one-paragraph render
+/// model, `render_offset = buffer_offset − 1`.
+///
+/// In this test we build the render tree directly (without going through the
+/// buffer), so render offsets start at 0.  The TrailingNewLine added by
+/// `set_content` has `start_char_offset = content_length_of_paragraph`, which
+/// equals `buffer_offset_of_trailing_newline` (1-indexed).  Therefore
+/// `softwrap_point_to_offset(start_of_next_row) == buffer_newline_offset`
+/// without any explicit ±1 — this is the property that `navigate_line_boundary`
+/// Forwards exploits.
+#[test]
+fn test_cld558_render_vs_buffer_offset_invariant() {
+    let (mut model, char_x) = make_soft_wrap_model();
+    let mut content = SumTree::new();
+    // "ABC\n"  →  render offsets 0..4  (A=0, B=1, C=2, \n slot=3)
+    content.push(laid_out_paragraph("ABC\n", &TEST_STYLES, f32::MAX));
+    model.set_content(content);
+
+    // render offset 0 → 'A' (first character).
+    assert_eq!(
+        model.offset_to_softwrap_point(CharOffset::from(0)),
+        SoftWrapPoint::new(0, char_x(0)),
+    );
+    // render offset 2 → 'C'.
+    assert_eq!(
+        model.offset_to_softwrap_point(CharOffset::from(2)),
+        SoftWrapPoint::new(0, char_x(2)),
+    );
+    // render offset 3 is the exclusive end of the paragraph block (the \n slot).
+    // `softwrap_point_to_offset` for the start of the next row returns 3.
+    // This equals the *buffer* 1-indexed offset of the '\n' in a one-paragraph
+    // buffer (buffer has block marker at 0, 'A'=1, 'B'=2, 'C'=3, '\n'=4 →
+    // actually no: "ABC\n" has 4 chars, buffer range is 1..5; '\n'=4).
+    // Wait — in the render tree, the paragraph's content_length = 4,
+    // the TrailingNewLine starts at render offset 4.
+    // In the buffer, '\n' is at buffer offset 4 (1-indexed: A=1,B=2,C=3,\n=4).
+    // render_end_of_paragraph (4)  ==  buffer_offset_of_newline (4).  ✓
+    let trailing_nl_start = model.softwrap_point_to_offset(SoftWrapPoint::new(1, Pixels::zero()));
+    assert_eq!(trailing_nl_start, CharOffset::from(4));
+}
+
 #[test]
 fn test_character_bounds() {
     let mut model =

@@ -313,7 +313,6 @@ impl DisplayMap {
             .anchor_before(point.to_buffer_point(self, bias, app)?)
     }
 
-    #[allow(dead_code)]
     pub fn anchor_after(
         &self,
         point: DisplayPoint,
@@ -347,7 +346,6 @@ impl DisplayPoint {
         Self(Point::new(row, column))
     }
 
-    #[allow(dead_code)]
     pub fn zero() -> Self {
         Self::new(0, 0)
     }

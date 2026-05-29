@@ -43,7 +43,6 @@ impl From<crate::persistence::model::UserProfile> for UserProfileWithUID {
 pub struct UserProfileData {
     pub display_name: Option<String>,
     pub email: String,
-    #[allow(dead_code)]
     pub photo_url: String,
 }
 

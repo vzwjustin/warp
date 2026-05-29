@@ -389,7 +389,12 @@ impl Searcher {
                     *MATCH_FILL
                 };
 
-                // TODO(CLD-558): This matches how we shift the selection by 1.
+                // TODO(CLD-558): Search matches (`m.start`, `m.end`) are in the
+                // buffer's 1-indexed CharOffset space (the find engine works on the
+                // buffer SumTree which starts at offset 1). `Decoration` uses the
+                // render model's 0-indexed coordinate system (its SumTree starts at
+                // 0). Subtracting 1 from each bound converts from buffer to render
+                // coordinates so the highlight spans the correct glyphs.
                 Decoration::new(m.start - 1, m.end - 1).with_background(fill)
             })
             .collect()

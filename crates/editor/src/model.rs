@@ -169,7 +169,14 @@ pub trait CoreEditorModel: Entity {
     fn truncate(&mut self, len: usize, ctx: &mut ModelContext<Self::T>) {
         self.update_content(
             |mut content, ctx| {
-                let byte_offset: ByteOffset = (len + 1).into(); // TODO(CLD-558)
+                // TODO(CLD-558): `len` is a caller-supplied byte length of the
+                // visible text content (0-indexed). The buffer's ByteOffset coordinate
+                // system is 1-indexed: position 0 is occupied by the block-marker
+                // placeholder that always lives at the start of the SumTree. Adding 1
+                // converts the 0-based byte length into the corresponding 1-based
+                // ByteOffset so that `to_buffer_char_offset` resolves to the correct
+                // character position.
+                let byte_offset: ByteOffset = (len + 1).into();
                 let char_offset = byte_offset.to_buffer_char_offset(content.buffer());
                 let max_offset = content.buffer().max_charoffset();
                 if char_offset < max_offset {
@@ -606,7 +613,12 @@ pub trait CoreEditorModel: Entity {
     }
 
     fn selection_head(&self, ctx: &AppContext) -> CharOffset {
-        // TODO(CLD-558): This matches how we shift the selection by 1.
+        // TODO(CLD-558): The buffer uses 1-indexed CharOffsets (offset 0 is a
+        // block-marker placeholder; real content starts at 1). The render model's
+        // SumTree uses 0-indexed CharOffsets (content starts at 0). Callers of
+        // this method, such as the notebooks view, expect a render-coordinate
+        // (0-indexed) offset to compare against render-model block ranges, so we
+        // subtract 1 to convert from the buffer's 1-indexed space.
         self.buffer_selection_model()
             .as_ref(ctx)
             .first_selection_head()
@@ -614,12 +626,19 @@ pub trait CoreEditorModel: Entity {
     }
 
     fn logical_line_start(&self, offset: CharOffset, ctx: &AppContext) -> CharOffset {
-        // TODO(CLD-558)
+        // TODO(CLD-558): `containing_line_start` operates in the buffer's 1-indexed
+        // CharOffset space and returns a 1-indexed result. We subtract 1 to convert
+        // the result to the render model's 0-indexed coordinate system, keeping the
+        // return value consistent with `selection_head` so callers can compare them
+        // directly (e.g., `logical_line_start == cursor_position - 1`).
         self.content().as_ref(ctx).containing_line_start(offset) - 1
     }
 
     fn logical_line_end(&self, offset: CharOffset, ctx: &AppContext) -> CharOffset {
-        // TODO(CLD-558)
+        // TODO(CLD-558): Same coordinate-system conversion as `logical_line_start`:
+        // `containing_line_end` returns a 1-indexed buffer offset (exclusive end),
+        // and we subtract 1 to convert to the render model's 0-indexed space so the
+        // result is comparable with `selection_head` values.
         self.content().as_ref(ctx).containing_line_end(offset) - 1
     }
 

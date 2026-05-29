@@ -38,8 +38,6 @@ pub enum EnvelopeError {
 /// UploadKey is the client-side (public) representation of the tink keysets used to encrypt
 /// secrets before uploading to the server.
 pub struct UploadKey {
-    #[allow(dead_code)]
-    public_key: tink_core::keyset::Handle,
     encrypt: Box<dyn tink_core::HybridEncrypt>,
 }
 
@@ -53,10 +51,7 @@ impl UploadKey {
         let keyset = tink_core::keyset::Handle::read_with_no_secrets(&mut key_reader)?;
 
         let primitive = tink_hybrid::new_encrypt(&keyset)?;
-        Ok(UploadKey {
-            public_key: keyset,
-            encrypt: primitive,
-        })
+        Ok(UploadKey { encrypt: primitive })
     }
 
     /// Encrypt a secret value for uploading to the server.
