@@ -620,7 +620,7 @@ pub(crate) fn prepare_claude_environment_config(
 ) -> Result<()> {
     let claude_json_path = claude_global_config_path()?;
     let claude_settings_path = claude_config_dir()?.join(CLAUDE_SETTINGS_FILE_NAME);
-    let api_key_suffix = resolve_anthropic_api_key_suffix(resolved_env_vars);
+    let api_key_suffix = resolve_claude_api_key_approval(resolved_env_vars);
     prepare_claude_config(&claude_json_path, working_dir, api_key_suffix.as_deref())?;
     prepare_claude_settings(&claude_settings_path)?;
     Ok(())
@@ -680,6 +680,10 @@ fn prepare_claude_settings(claude_settings_path: &Path) -> Result<()> {
 }
 
 const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
+/// Long-lived subscription OAuth token produced by `claude setup-token`. When set, the Claude
+/// Code CLI authenticates against the user's Claude subscription (Pro/Max/Team/Enterprise)
+/// non-interactively. See https://code.claude.com/docs/en/authentication.
+const CLAUDE_CODE_OAUTH_TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 const CLAUDE_JSON_FILE_NAME: &str = ".claude.json";
 const CLAUDE_SETTINGS_FILE_NAME: &str = "settings.json";
 const ANTHROPIC_API_KEY_SUFFIX_LEN: usize = 20;
@@ -724,6 +728,38 @@ struct ClaudeSettings {
     skip_dangerous_mode_permission_prompt: bool,
     #[serde(flatten)]
     extra: Map<String, Value>,
+}
+
+/// Decide whether to pre-approve an `ANTHROPIC_API_KEY` suffix in `.claude.json`.
+///
+/// When a subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`) is present we return `None` so no
+/// API key is pre-approved. Claude Code prioritizes `ANTHROPIC_API_KEY` over the OAuth token in
+/// non-interactive (`-p`) mode, so pre-approving a key would silently switch the harness from the
+/// user's subscription to metered API billing. Skipping the approval keeps subscription auth in
+/// effect. Otherwise we fall back to the usual API-key suffix approval.
+fn resolve_claude_api_key_approval(
+    resolved_env_vars: &HashMap<OsString, OsString>,
+) -> Option<String> {
+    if has_claude_code_oauth_token(resolved_env_vars) {
+        log::info!(
+            "{CLAUDE_CODE_OAUTH_TOKEN_ENV} present; authenticating the Claude Code harness with \
+             the user's Claude subscription (OAuth) and skipping API-key approval"
+        );
+        return None;
+    }
+    resolve_anthropic_api_key_suffix(resolved_env_vars)
+}
+
+/// Whether a non-empty `CLAUDE_CODE_OAUTH_TOKEN` is available, preferring the worker-injected
+/// process environment over the resolved secrets map (mirrors [`resolve_anthropic_api_key_suffix`]).
+fn has_claude_code_oauth_token(resolved_env_vars: &HashMap<OsString, OsString>) -> bool {
+    if std::env::var(CLAUDE_CODE_OAUTH_TOKEN_ENV).is_ok_and(|v| !v.is_empty()) {
+        return true;
+    }
+    resolved_env_vars
+        .get(OsStr::new(CLAUDE_CODE_OAUTH_TOKEN_ENV))
+        .and_then(|v| v.to_str())
+        .is_some_and(|v| !v.is_empty())
 }
 
 /// Try to get the last 20 chars of the ANTHROPIC_API_KEY, where 20 chars is the
