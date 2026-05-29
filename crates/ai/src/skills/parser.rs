@@ -9,7 +9,6 @@ use serde_yaml::Value;
 
 /// Represents a parsed markdown file with YAML front matter
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct ParsedMarkdown {
     /// The YAML front matter parsed as a map
     /// For Skills, the front matter is always a single-level map with string keys and string values
@@ -28,14 +27,12 @@ pub struct ParsedMarkdown {
 ///
 /// # Returns
 /// * `Result<ParsedMarkdown>` - Parsed document with front matter and content
-#[allow(dead_code)]
 pub fn parse_markdown_file(path: &Path) -> Result<ParsedMarkdown> {
     let content = fs::read_to_string(path)?;
     parse_markdown_content(&content)
 }
 
 /// Parse markdown content with YAML front matter
-#[allow(dead_code)]
 pub(crate) fn parse_markdown_content(content: &str) -> Result<ParsedMarkdown> {
     // Regex to match YAML front matter at the start of the file
     // Handles both LF (\n) and CRLF (\r\n) line endings
