@@ -6,7 +6,7 @@ use persistence::model::ConversationUsageMetadata;
 use session_sharing_protocol::sharer::SessionSourceType;
 use warp_multi_agent_api::{self as api, client_action as api_client_action};
 use warpui::platform::WindowStyle;
-use warpui::{App, EntityId, TypedActionView, ViewHandle};
+use warpui::{App, EntityId, ViewHandle};
 
 use super::*;
 use crate::ai::agent::api::ServerConversationToken;
