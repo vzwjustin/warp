@@ -760,6 +760,60 @@ fn resolve_suffix_returns_none_when_empty() {
 
 #[test]
 #[serial_test::serial]
+fn has_oauth_token_detects_resolved_env_var() {
+    std::env::remove_var(CLAUDE_CODE_OAUTH_TOKEN_ENV);
+    let resolved = HashMap::from([(
+        OsString::from(CLAUDE_CODE_OAUTH_TOKEN_ENV),
+        OsString::from("sk-ant-oat01-example-token"),
+    )]);
+    assert!(has_claude_code_oauth_token(&resolved));
+}
+
+#[test]
+#[serial_test::serial]
+fn has_oauth_token_false_when_absent_or_empty() {
+    std::env::remove_var(CLAUDE_CODE_OAUTH_TOKEN_ENV);
+    assert!(!has_claude_code_oauth_token(&HashMap::new()));
+    let empty = HashMap::from([(
+        OsString::from(CLAUDE_CODE_OAUTH_TOKEN_ENV),
+        OsString::from(""),
+    )]);
+    assert!(!has_claude_code_oauth_token(&empty));
+}
+
+#[test]
+#[serial_test::serial]
+fn oauth_token_skips_api_key_approval_even_with_key_present() {
+    std::env::remove_var(ANTHROPIC_API_KEY_ENV);
+    std::env::remove_var(CLAUDE_CODE_OAUTH_TOKEN_ENV);
+    // Both an API key and an OAuth token are present: subscription OAuth must win, so no API key
+    // suffix is pre-approved (otherwise Claude Code would switch to metered API billing in -p mode).
+    let key = "sk-ant-api03-abcdefghij1234567890ABCDEFGHIJ1234567890abcdefghij1234567890QLWn-dUnuwQ-hIhDiAAA";
+    let resolved = HashMap::from([
+        (OsString::from(ANTHROPIC_API_KEY_ENV), OsString::from(key)),
+        (
+            OsString::from(CLAUDE_CODE_OAUTH_TOKEN_ENV),
+            OsString::from("sk-ant-oat01-example-token"),
+        ),
+    ]);
+    assert_eq!(resolve_claude_api_key_approval(&resolved), None);
+}
+
+#[test]
+#[serial_test::serial]
+fn api_key_approval_falls_back_to_suffix_without_oauth_token() {
+    std::env::remove_var(ANTHROPIC_API_KEY_ENV);
+    std::env::remove_var(CLAUDE_CODE_OAUTH_TOKEN_ENV);
+    let key = "sk-ant-api03-abcdefghij1234567890ABCDEFGHIJ1234567890abcdefghij1234567890QLWn-dUnuwQ-hIhDiAAA";
+    let resolved = HashMap::from([(OsString::from(ANTHROPIC_API_KEY_ENV), OsString::from(key))]);
+    assert_eq!(
+        resolve_claude_api_key_approval(&resolved).as_deref(),
+        Some("QLWn-dUnuwQ-hIhDiAAA")
+    );
+}
+
+#[test]
+#[serial_test::serial]
 fn prepare_local_wake_command_rehydrates_transcript_with_self_managed_listener() {
     let home_dir = TempDir::new().unwrap();
     let claude_config_dir = TempDir::new().unwrap();
