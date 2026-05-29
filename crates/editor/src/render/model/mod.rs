@@ -2621,7 +2621,11 @@ impl RenderState {
             log::trace!("Initial blocks:\n{}", content.describe());
             let mut cursor = content.cursor::<CharOffset, CharOffset>();
 
-            // TODO(CLD-558): Ideally, we'd use the content-level offset as is.
+            // TODO(CLD-558): `pending_edit.old_offset` is in the buffer's 1-indexed
+            // CharOffset space (content starts at offset 1). The render model's SumTree
+            // is 0-indexed (content starts at offset 0). Subtracting 1 converts the
+            // buffer range boundary into the render model's coordinate system so the
+            // cursor seeks to the correct position in the SumTree.
             let effective_start = pending_edit
                 .old_offset
                 .start
@@ -2650,7 +2654,9 @@ impl RenderState {
                 new_tree.push(item);
             }
 
-            // TODO(CLD-558): Ideally, we'd use the content-level offset as is.
+            // TODO(CLD-558): Same coordinate-system conversion as `effective_start`
+            // above: subtract 1 to translate the 1-indexed buffer range end into the
+            // render model's 0-indexed SumTree coordinate space.
             let effective_end = pending_edit
                 .old_offset
                 .end

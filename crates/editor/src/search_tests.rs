@@ -244,3 +244,67 @@ fn searcher(
 ) -> ModelHandle<Searcher> {
     app.add_model(|ctx| Searcher::new(buffer, selection, ctx))
 }
+
+// ── CLD-558 characterization test ─────────────────────────────────────────────
+//
+// Pins the coordinate conversion in `result_decorations`: search `Match`
+// offsets are 1-indexed (buffer space) and `Decoration` offsets are 0-indexed
+// (render-model space).  The `−1` on both bounds converts between the two.
+
+/// CLD-558 characterization: search result decorations use render (0-indexed) offsets.
+///
+/// For input "abc def abc def" the two matches for "abc" are at buffer offsets
+/// 1..4 and 9..12 (1-indexed).  After the `−1` conversion, the decorations
+/// must cover render offsets 0..3 and 8..11 (0-indexed).
+#[test]
+fn test_cld558_search_decorations_use_render_offsets() {
+    use crate::render::model::Decoration;
+    App::test((), |mut app| async move {
+        let (content, selection) = buffer(&mut app, "abc def abc def");
+        let search = searcher(&mut app, content, selection);
+
+        search
+            .update(&mut app, |search, ctx| {
+                search.set_query("abc", ctx);
+                search.search_finished(ctx)
+            })
+            .await;
+
+        search.read(&app, |search, _| {
+            // Verify the raw match offsets are in 1-indexed buffer space.
+            let results = search.results().expect("search should have results");
+            assert_eq!(
+                results.matches,
+                vec![
+                    Match {
+                        start: 1.into(),
+                        end: 4.into()
+                    },
+                    Match {
+                        start: 9.into(),
+                        end: 12.into()
+                    },
+                ],
+                "search matches should be 1-indexed buffer offsets"
+            );
+
+            // Verify that decorations subtract 1, yielding 0-indexed render offsets.
+            let decorations: Vec<Decoration> = search.result_decorations();
+            assert_eq!(decorations.len(), 2, "should have two decorations");
+
+            // First match "abc" at buffer 1..4 → render 0..3.
+            assert_eq!(
+                (decorations[0].start, decorations[0].end),
+                (0.into(), 3.into()),
+                "first decoration should be at render offsets 0..3"
+            );
+
+            // Second match "abc" at buffer 9..12 → render 8..11.
+            assert_eq!(
+                (decorations[1].start, decorations[1].end),
+                (8.into(), 11.into()),
+                "second decoration should be at render offsets 8..11"
+            );
+        });
+    });
+}

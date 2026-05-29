@@ -874,7 +874,12 @@ impl SelectionModel {
         ctx: &impl ModelAsRef,
     ) -> NavigationResult {
         let render = self.render.as_ref(ctx);
-        // TODO(CLD-558): This shouldn't need the +/- 1
+        // TODO(CLD-558): The buffer's CharOffset is 1-indexed (content starts at
+        // offset 1), while the render model's SumTree uses 0-indexed CharOffsets.
+        // We subtract 1 to convert the 1-indexed buffer cursor `start` into the
+        // render model's coordinate system before looking up the soft-wrap point.
+        // After computing the new position in render coordinates, we add 1 (line 917)
+        // to convert the result back to a buffer-indexed cursor.
         let point = render.offset_to_softwrap_point(start.saturating_sub(&1.into()));
 
         let next_point = match direction {
@@ -914,6 +919,8 @@ impl SelectionModel {
             None => next_point.column(),
         };
         let goal_point = SoftWrapPoint::new(next_point.row(), goal_column);
+        // TODO(CLD-558): `softwrap_point_to_offset` returns a render 0-indexed offset;
+        // adding 1 converts it back to the buffer's 1-indexed CharOffset space.
         let next_offset = render.softwrap_point_to_offset(goal_point) + 1;
         let next_offset = self.normalize_line_navigation_offset(start, direction, next_offset, ctx);
         NavigationResult::for_offset_and_goal(next_offset, Some(goal_column))
@@ -939,11 +946,16 @@ impl SelectionModel {
             return NavigationResult::for_offset(start.saturating_sub(&1.into()));
         }
 
-        // TODO(CLD-558): This shouldn't need the +/- 1
+        // TODO(CLD-558): The buffer's CharOffset is 1-indexed while the render
+        // model's SumTree is 0-indexed. We subtract 1 to convert `start` (buffer)
+        // into render-model coordinates before looking up the soft-wrap row.
         let start_point = render.offset_to_softwrap_point(start.saturating_sub(&1.into()));
         let end_offset = match direction {
             TextDirection::Backwards => {
                 let row_start = SoftWrapPoint::new(start_point.row(), Pixels::zero());
+                // `softwrap_point_to_offset(row_start)` returns the render 0-indexed
+                // offset of the first character on the current soft-wrapped row.
+                // Adding 1 converts it back to the buffer's 1-indexed space.
                 let soft_wrapped_start = render.softwrap_point_to_offset(row_start);
 
                 match content.indented_line_start(start) {
@@ -954,6 +966,8 @@ impl SelectionModel {
                     {
                         indented_start
                     }
+                    // TODO(CLD-558): `soft_wrapped_start` is a render 0-indexed offset;
+                    // `+ 1` converts it to the buffer's 1-indexed space.
                     _ => soft_wrapped_start + 1,
                 }
             }
@@ -970,7 +984,13 @@ impl SelectionModel {
                         _ => {
                             let next_row_start =
                                 SoftWrapPoint::new(start_point.row() + 1, Pixels::zero());
-                            // TODO(CLD-558): This should have a -1.
+                            // TODO(CLD-558): `softwrap_point_to_offset(next_row_start)` returns
+                            // the render 0-indexed offset of the first character on the next row,
+                            // which equals `content_end_of_current_paragraph` (render). By the
+                            // layout invariant, this equals `buffer_offset_of_trailing_newline`
+                            // (the newline at the end of the current hard-wrapped line), so no
+                            // explicit +1/-1 conversion is needed here. The earlier comment
+                            // "should have a -1" was incorrect.
                             render.softwrap_point_to_offset(next_row_start)
                         }
                     }

@@ -1010,3 +1010,179 @@ fn test_end_semantic_selection() {
         });
     });
 }
+
+// ── CLD-558 characterization tests ───────────────────────────────────────────
+//
+// These tests pin the CURRENT behaviour of `navigate_line` and
+// `navigate_line_boundary`.  They exist to lock down the ±1 coordinate
+// conversions that are necessary because buffer CharOffsets are 1-indexed
+// (content starts at 1) while the render model's SumTree is 0-indexed
+// (content starts at 0).
+//
+// DO NOT change these assertions to reflect "desired" future behaviour.
+// Their value is precisely that they catch unintended regressions in the
+// navigation arithmetic.
+
+/// Build a SelectionModel over "Line one\nLine two\n" with no soft-wrapping.
+/// Buffer layout (1-indexed):
+///   L=1 i=2 n=3 e=4 ' '=5 o=6 n=7 e=8 \n=9
+///   L=10 i=11 n=12 e=13 ' '=14 t=15 w=16 o=17 \n=18
+///   (implicit trailing newline)
+fn two_line_selection_model(app: &mut warpui::App) -> warpui::ModelHandle<SelectionModel> {
+    app.add_model(|ctx| {
+        let buffer = ctx.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
+        let buffer_selection = ctx.add_model(|_| BufferSelectionModel::new(buffer.clone()));
+
+        buffer.update(ctx, |buffer, ctx| {
+            buffer.update_content(
+                BufferEditAction::Insert {
+                    text: "Line one\nLine two",
+                    style: Default::default(),
+                    override_text_style: None,
+                },
+                EditOrigin::UserTyped,
+                buffer_selection.clone(),
+                ctx,
+            );
+        });
+
+        let render = ctx.add_model(|_| {
+            let mut render = RenderState::new_for_test(
+                TEST_STYLES,
+                f32::MAX.into_pixels(),
+                f32::MAX.into_pixels(),
+            );
+            let mut content = SumTree::new();
+            content.push(laid_out_paragraph("Line one\n", &TEST_STYLES, f32::MAX));
+            content.push(laid_out_paragraph("Line two\n", &TEST_STYLES, f32::MAX));
+            render.set_content(content);
+            render
+        });
+        SelectionModel::new(buffer, render, buffer_selection, None, ctx)
+    })
+}
+
+/// CLD-558 characterization: navigate_line (vertical movement).
+///
+/// Asserts the exact buffer-offset results produced by the current
+/// implementation of `navigate_line`, which applies:
+///   • `offset_to_softwrap_point(start − 1)`  (−1: buffer→render)
+///   • `softwrap_point_to_offset(goal_point) + 1`  (+1: render→buffer)
+#[test]
+fn test_cld558_navigate_line_characterization() {
+    App::test((), |mut app| async move {
+        let selection = two_line_selection_model(&mut app);
+
+        selection.update(&mut app, |selection, ctx| {
+            // ── Forwards (down) ──────────────────────────────────────────────
+            // Cursor on 'L' of "Line one" (buffer offset 1).
+            // Moving down to "Line two" should land on 'L' (buffer offset 10).
+            selection.set_cursor(1.into(), ctx);
+            selection.move_selection(TextDirection::Forwards, TextUnit::Line, ctx);
+            assert_eq!(
+                selection.cursor(ctx),
+                10.into(),
+                "navigate_line down from offset 1 should give 10"
+            );
+
+            // Cursor on 'n' of "Line one" (buffer offset 3).
+            // Corresponding 'n' on "Line two" is buffer offset 12.
+            selection.set_cursor(3.into(), ctx);
+            selection.move_selection(TextDirection::Forwards, TextUnit::Line, ctx);
+            assert_eq!(
+                selection.cursor(ctx),
+                12.into(),
+                "navigate_line down from offset 3 should give 12"
+            );
+
+            // ── Backwards (up) ───────────────────────────────────────────────
+            // Cursor on 'L' of "Line two" (buffer offset 10).
+            // Moving up should land on 'L' of "Line one" (buffer offset 1).
+            selection.set_cursor(10.into(), ctx);
+            selection.move_selection(TextDirection::Backwards, TextUnit::Line, ctx);
+            assert_eq!(
+                selection.cursor(ctx),
+                1.into(),
+                "navigate_line up from offset 10 should give 1"
+            );
+
+            // Cursor on 'w' of "Line two" (buffer offset 16, column 6 of that line).
+            // "Line one" also has 8 visible chars so column 6 maps to 'n' at buffer
+            // offset 7. The column fits within "Line one" so no clamping occurs.
+            selection.set_cursor(16.into(), ctx);
+            selection.move_selection(TextDirection::Backwards, TextUnit::Line, ctx);
+            assert_eq!(
+                selection.cursor(ctx),
+                7.into(),
+                "navigate_line up from offset 16 should give 7 (same column on line one)"
+            );
+        });
+    });
+}
+
+/// CLD-558 characterization: navigate_line_boundary (Home / End).
+///
+/// Asserts the exact buffer-offset results produced by the current
+/// implementation of `navigate_line_boundary`.
+///
+/// Backwards (Home):
+///   `softwrap_point_to_offset(row_start) + 1`  (+1: render→buffer)
+///
+/// Forwards (End):
+///   `softwrap_point_to_offset(next_row_start)`  (no adjustment; see doc comment
+///   in selection.rs for why this gives the correct buffer offset for '\n').
+#[test]
+fn test_cld558_navigate_line_boundary_characterization() {
+    App::test((), |mut app| async move {
+        let selection = two_line_selection_model(&mut app);
+
+        selection.update(&mut app, |selection, ctx| {
+            // ── Backwards (Home) on "Line one" ───────────────────────────────
+            // Cursor in the middle of "Line one" at buffer offset 5 ('space').
+            // Home should move to buffer offset 1 ('L').
+            selection.set_cursor(5.into(), ctx);
+            selection.move_selection(TextDirection::Backwards, TextUnit::LineBoundary, ctx);
+            assert_eq!(
+                selection.cursor(ctx),
+                1.into(),
+                "navigate_line_boundary Home from offset 5 should give 1"
+            );
+
+            // ── Backwards (Home) on "Line two" ───────────────────────────────
+            // Cursor in the middle of "Line two" at buffer offset 14.
+            // Home should move to buffer offset 10 ('L' of "Line two").
+            selection.set_cursor(14.into(), ctx);
+            selection.move_selection(TextDirection::Backwards, TextUnit::LineBoundary, ctx);
+            assert_eq!(
+                selection.cursor(ctx),
+                10.into(),
+                "navigate_line_boundary Home from offset 14 should give 10"
+            );
+
+            // ── Forwards (End) on "Line one" ─────────────────────────────────
+            // Cursor at start of "Line one" (buffer offset 1).
+            // End should move to buffer offset 9 ('\n' of "Line one").
+            // This is the result of softwrap_point_to_offset(row1_start) with
+            // no ±1 adjustment — see the TODO(CLD-558) comment in selection.rs.
+            selection.set_cursor(1.into(), ctx);
+            selection.move_selection(TextDirection::Forwards, TextUnit::LineBoundary, ctx);
+            assert_eq!(
+                selection.cursor(ctx),
+                9.into(),
+                "navigate_line_boundary End from offset 1 should give 9"
+            );
+
+            // ── Forwards (End) on "Line two" (last line) ─────────────────────
+            // Cursor at start of "Line two" (buffer offset 10).
+            // End on the last line clamps to max_charoffset.
+            // "Line two" has 8 chars + implicit trailing newline → buffer max = 18.
+            selection.set_cursor(10.into(), ctx);
+            selection.move_selection(TextDirection::Forwards, TextUnit::LineBoundary, ctx);
+            assert_eq!(
+                selection.cursor(ctx),
+                18.into(),
+                "navigate_line_boundary End on last line from offset 10 should give 18"
+            );
+        });
+    });
+}
