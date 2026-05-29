@@ -56,7 +56,7 @@ fn write_surfaced_parent_bridge_message(state_dir: &Path, record: &MessageBridge
 #[test]
 fn claude_command_uses_session_id_when_not_resuming() {
     let uuid = Uuid::new_v4();
-    let cmd = claude_command("claude", &uuid, "/tmp/prompt.txt", None, None, false);
+    let cmd = claude_command("claude", &uuid, "/tmp/prompt.txt", None, None, None, false);
     assert!(
         cmd.contains(&format!("--session-id {uuid}")),
         "expected --session-id flag in non-resume command, got: {cmd}"
@@ -70,7 +70,7 @@ fn claude_command_uses_session_id_when_not_resuming() {
 #[test]
 fn claude_command_uses_resume_flag_when_resuming() {
     let uuid = Uuid::new_v4();
-    let cmd = claude_command("claude", &uuid, "/tmp/prompt.txt", None, None, true);
+    let cmd = claude_command("claude", &uuid, "/tmp/prompt.txt", None, None, None, true);
     assert!(
         cmd.contains(&format!("--resume {uuid}")),
         "expected --resume flag in resume command, got: {cmd}"
@@ -90,6 +90,7 @@ fn claude_command_pipes_prompt_path() {
         "/tmp/prompt with spaces.txt",
         None,
         None,
+        None,
         true,
     );
     assert!(
@@ -99,6 +100,57 @@ fn claude_command_pipes_prompt_path() {
     assert!(
         cmd.contains("--dangerously-skip-permissions"),
         "expected --dangerously-skip-permissions, got: {cmd}"
+    );
+}
+
+#[test]
+fn claude_command_includes_model_flag_when_selected() {
+    let uuid = Uuid::new_v4();
+    let cmd = claude_command(
+        "claude",
+        &uuid,
+        "/tmp/prompt.txt",
+        None,
+        None,
+        Some("claude-sonnet-4-5"),
+        false,
+    );
+    assert!(
+        cmd.contains("--model 'claude-sonnet-4-5'"),
+        "expected --model flag for the selected model, got: {cmd}"
+    );
+}
+
+#[test]
+fn claude_command_omits_model_flag_when_none() {
+    let uuid = Uuid::new_v4();
+    let cmd = claude_command("claude", &uuid, "/tmp/prompt.txt", None, None, None, false);
+    assert!(
+        !cmd.contains("--model"),
+        "expected no --model flag when no model selected, got: {cmd}"
+    );
+}
+
+#[test]
+fn resolve_claude_model_arg_filters_empty_and_default() {
+    assert_eq!(resolve_claude_model_arg(None), None);
+    let empty = HarnessModelConfig {
+        model_id: String::new(),
+        reasoning_level: None,
+    };
+    assert_eq!(resolve_claude_model_arg(Some(&empty)), None);
+    let default = HarnessModelConfig {
+        model_id: "default".to_string(),
+        reasoning_level: None,
+    };
+    assert_eq!(resolve_claude_model_arg(Some(&default)), None);
+    let selected = HarnessModelConfig {
+        model_id: "claude-opus-4-1".to_string(),
+        reasoning_level: None,
+    };
+    assert_eq!(
+        resolve_claude_model_arg(Some(&selected)),
+        Some("claude-opus-4-1")
     );
 }
 
