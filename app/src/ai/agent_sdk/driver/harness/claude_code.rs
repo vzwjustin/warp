@@ -138,7 +138,7 @@ impl ThirdPartyHarness for ClaudeHarness {
         resolved_env_vars: &HashMap<OsString, OsString>,
         _resolved_secrets: &HashMap<String, ManagedSecretValue>,
         resolved_mcp_servers: &HashMap<String, JSONMCPServer>,
-        _third_party_harness_model_config: Option<&HarnessModelConfig>,
+        third_party_harness_model_config: Option<&HarnessModelConfig>,
     ) -> Result<Box<dyn HarnessRunner>, AgentDriverError> {
         // Prepare the environment config files.
         prepare_claude_environment_config(working_dir, resolved_env_vars).map_err(|error| {
@@ -176,6 +176,7 @@ impl ThirdPartyHarness for ClaudeHarness {
             terminal_driver,
             claude_resume,
             resolved_mcp_servers,
+            resolve_claude_model_arg(third_party_harness_model_config),
         )?))
     }
 }
@@ -198,6 +199,7 @@ fn claude_command(
     prompt_path: &str,
     system_prompt_path: Option<&str>,
     mcp_config_path: Option<&str>,
+    model_id: Option<&str>,
     resuming: bool,
 ) -> String {
     let flag = if resuming { "--resume" } else { "--session-id" };
@@ -208,7 +210,20 @@ fn claude_command(
     if let Some(mcp_path) = mcp_config_path {
         let _ = write!(cmd, " --mcp-config '{mcp_path}'");
     }
+    if let Some(model) = model_id {
+        let _ = write!(cmd, " --model '{model}'");
+    }
     format!("{cmd} < '{prompt_path}'")
+}
+
+/// Resolve the model the Claude Code harness should run, from Warp's harness model selection.
+///
+/// Returns `None` (let the `claude` CLI use its own default) when no model is selected or the
+/// sentinel `"default"` is chosen, mirroring how the Codex harness consumes `model_id`.
+fn resolve_claude_model_arg(config: Option<&HarnessModelConfig>) -> Option<&str> {
+    config
+        .map(|c| c.model_id.as_str())
+        .filter(|id| !id.is_empty() && *id != "default")
 }
 
 /// Runtime state of a [`ClaudeHarnessRunner`].
@@ -259,6 +274,7 @@ impl ClaudeHarnessRunner {
         terminal_driver: ModelHandle<TerminalDriver>,
         resume: Option<ClaudeResumeInfo>,
         resolved_mcp_servers: &HashMap<String, JSONMCPServer>,
+        model_id: Option<&str>,
     ) -> Result<Self, AgentDriverError> {
         // Write the prompt to a temp file so we can feed it via stdin redirect,
         // avoiding shell-quoting issues with complex content (e.g. skill instructions).
@@ -327,6 +343,7 @@ impl ClaudeHarnessRunner {
                 &prompt_path,
                 system_prompt_path.as_deref(),
                 mcp_config_path.as_deref(),
+                model_id,
                 preexisting_conversation_id.is_some(),
             ),
             cli_name: cli_command.to_string(),

@@ -220,6 +220,8 @@ impl ClaudeHarness {
             &prompt_path.display().to_string(),
             None,
             None,
+            // Resuming an existing session: the model is already pinned in the transcript.
+            None,
             true,
         );
         let env_vars = local_wake_task_env_vars(Some(&task_id), parent_run_id.as_deref());
